@@ -1,0 +1,194 @@
+diff -ru a/src/dnsmasq.c b/src/dnsmasq.c
+--- a/src/dnsmasq.c	2018-10-19 02:21:55.000000000 +0800
++++ b/src/dnsmasq.c	2018-10-19 22:37:34.277532837 +0800
+@@ -18,7 +18,7 @@
+ #define DNSMASQ_COMPILE_OPTS
+ 
+ #include "dnsmasq.h"
+-
++#include <libubus.h>
+ struct daemon *daemon;
+ 
+ static volatile pid_t pid = 0;
+@@ -32,6 +32,64 @@
+ static int read_event(int fd, struct event_desc *evp, char **msg);
+ static void poll_resolv(int force, int do_reload, time_t now);
+ 
++static struct ubus_context *ubus;
++static struct blob_buf b;
++
++static struct ubus_object_type ubus_object_type = {
++	.name = "dnsmasq",
++};
++
++static struct ubus_object ubus_object = {
++	.name = "dnsmasq",
++	.type = &ubus_object_type,
++};
++
++void ubus_event_bcast(const char *type, const char *mac, const char *ip, const char *name, const char *interface)
++{
++	if (!ubus || !ubus_object.has_subscribers)
++		return;
++
++	blob_buf_init(&b, 0);
++	if (mac)
++		blobmsg_add_string(&b, "mac", mac);
++	if (ip)
++		blobmsg_add_string(&b, "ip", ip);
++	if (name)
++		blobmsg_add_string(&b, "name", name);
++	if (interface)
++		blobmsg_add_string(&b, "interface", interface);
++	ubus_notify(ubus, &ubus_object, type, b.head, -1);
++}
++
++static void set_ubus_listeners(void)
++{
++	if (!ubus)
++		return;
++
++	poll_listen(ubus->sock.fd, POLLIN);
++	poll_listen(ubus->sock.fd, POLLERR);
++	poll_listen(ubus->sock.fd, POLLHUP);
++}
++
++static void check_ubus_listeners()
++{
++	if (!ubus) {
++		ubus = ubus_connect(NULL);
++		if (ubus)
++			ubus_add_object(ubus, &ubus_object);
++		else
++			return;
++	}
++
++	if (poll_check(ubus->sock.fd, POLLIN))
++		ubus_handle_event(ubus);
++
++	if (poll_check(ubus->sock.fd, POLLHUP)) {
++		ubus_free(ubus);
++		ubus = NULL;
++	}
++}
++
+ int main (int argc, char **argv)
+ {
+   int bind_fallback = 0;
+diff -ru a/src/dnsmasq.h b/src/dnsmasq.h
+--- a/src/dnsmasq.h	2018-10-19 02:21:55.000000000 +0800
++++ b/src/dnsmasq.h	2018-10-19 22:26:09.008809861 +0800
+@@ -95,7 +95,7 @@
+ #if defined(HAVE_SOLARIS_NETWORK)
+ #  include <sys/sockio.h>
+ #endif
+-#include <sys/poll.h>
++#include <poll.h>
+ #include <sys/wait.h>
+ #include <sys/time.h>
+ #include <sys/un.h>
+diff -ru a/src/dnssec.c b/src/dnssec.c
+--- a/src/dnssec.c	2018-10-19 02:21:55.000000000 +0800
++++ b/src/dnssec.c	2018-10-19 22:23:13.429956394 +0800
+@@ -143,17 +143,25 @@
+ int setup_timestamp(void)
+ {
+   struct stat statbuf;
++
++  time_t now;
++  time_t base = 1420070400; /* 1-1-2015 */
+   
+   daemon->back_to_the_future = 0;
+   
+   if (!daemon->timestamp_file)
+     return 0;
+   
++  now = time(NULL);
++
++  if (!stat("/proc/self/exe", &statbuf) && difftime(statbuf.st_mtime, base) > 0)
++    base = statbuf.st_mtime;
++
+   if (stat(daemon->timestamp_file, &statbuf) != -1)
+     {
+       timestamp_time = statbuf.st_mtime;
+     check_and_exit:
+-      if (difftime(timestamp_time, time(0)) <=  0)
++      if (difftime(now, base) >= 0 && difftime(timestamp_time, now) <= 0)
+ 	{
+ 	  /* time already OK, update timestamp, and do key checking from the start. */
+ 	  if (utimes(daemon->timestamp_file, NULL) == -1)
+@@ -174,7 +182,7 @@
+ 
+ 	  close(fd);
+ 	  
+-	  timestamp_time = 1420070400; /* 1-1-2015 */
++	  timestamp_time = base; /* 1-1-2015 */
+ 	  tv[0].tv_sec = tv[1].tv_sec = timestamp_time;
+ 	  tv[0].tv_usec = tv[1].tv_usec = 0;
+ 	  if (utimes(daemon->timestamp_file, tv) == 0)
+diff -ru a/src/ipset.c b/src/ipset.c
+--- a/src/ipset.c	2018-10-19 02:21:55.000000000 +0800
++++ b/src/ipset.c	2018-10-19 22:16:27.843129369 +0800
+@@ -22,7 +22,6 @@
+ #include <errno.h>
+ #include <sys/types.h>
+ #include <sys/socket.h>
+-#include <sys/utsname.h>
+ #include <arpa/inet.h>
+ #include <linux/version.h>
+ #include <linux/netlink.h>
+@@ -72,7 +71,7 @@
+ 
+ #define NL_ALIGN(len) (((len)+3) & ~(3))
+ static const struct sockaddr_nl snl = { .nl_family = AF_NETLINK };
+-static int ipset_sock, old_kernel;
++static int ipset_sock;
+ static char *buffer;
+ 
+ static inline void add_attr(struct nlmsghdr *nlh, uint16_t type, size_t len, const void *data)
+@@ -87,25 +86,7 @@
+ 
+ void ipset_init(void)
+ {
+-  struct utsname utsname;
+-  int version;
+-  char *split;
+-  
+-  if (uname(&utsname) < 0)
+-    die(_("failed to find kernel version: %s"), NULL, EC_MISC);
+-  
+-  split = strtok(utsname.release, ".");
+-  version = (split ? atoi(split) : 0);
+-  split = strtok(NULL, ".");
+-  version = version * 256 + (split ? atoi(split) : 0);
+-  split = strtok(NULL, ".");
+-  version = version * 256 + (split ? atoi(split) : 0);
+-  old_kernel = (version < KERNEL_VERSION(2,6,32));
+-  
+-  if (old_kernel && (ipset_sock = socket(AF_INET, SOCK_RAW, IPPROTO_RAW)) != -1)
+-    return;
+-  
+-  if (!old_kernel && 
++  if (
+       (buffer = safe_malloc(BUFF_SZ)) &&
+       (ipset_sock = socket(AF_NETLINK, SOCK_RAW, NETLINK_NETFILTER)) != -1 &&
+       (bind(ipset_sock, (struct sockaddr *)&snl, sizeof(snl)) != -1))
+@@ -217,17 +198,10 @@
+   if (flags & F_IPV6)
+     {
+       af = AF_INET6;
+-      /* old method only supports IPv4 */
+-      if (old_kernel)
+-	{
+-	  errno = EAFNOSUPPORT ;
+-	  ret = -1;
+-	}
+     }
+ #endif
+   
+-  if (ret != -1) 
+-    ret = old_kernel ? old_add_to_ipset(setname, ipaddr, remove) : new_add_to_ipset(setname, ipaddr, af, remove);
++    ret = new_add_to_ipset(setname, ipaddr, af, remove);
+ 
+   if (ret == -1)
+      my_syslog(LOG_ERR, _("failed to update ipset %s: %s"), setname, strerror(errno));
