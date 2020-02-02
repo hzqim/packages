@@ -25,7 +25,7 @@ define Package/local-luci-zh-cn
 	TITLE:=luci localization configuration
 	PKGARCH:=all
 	DEPENDS:=+luci +luci-i18n-base-zh-cn +luci-i18n-firewall-zh-cn \
-		+curl +htop +iftop +wget +bind-dig
+		+curl +htop +iftop +wget +bind-dig +luci-compat +luci-lib-ipkg
 endef
 
 define Package/local-luci-zh-cn/description
