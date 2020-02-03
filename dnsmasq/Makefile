@@ -9,7 +9,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=dnsmasq
 PKG_VERSION:=2.80
-PKG_RELEASE:=1
+PKG_RELEASE:=1.4
 
 PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.xz
 PKG_SOURCE_URL:=http://thekelleys.org.uk/dnsmasq
@@ -37,7 +37,7 @@ include $(INCLUDE_DIR)/package.mk
 define Package/dnsmasq/Default
   SECTION:=net
   CATEGORY:=hzqim
-  TITLE:=DNS and DHCP server with regex support
+  TITLE:=DNS and DHCP server with regex
   URL:=http://www.thekelleys.org.uk/dnsmasq/
   DEPENDS:=+libubus +libpcre
   USERID:=dnsmasq=453:dnsmasq=453
@@ -53,6 +53,7 @@ $(call Package/dnsmasq/Default)
   TITLE += (with DHCPv6 support)
   DEPENDS+=@IPV6
   VARIANT:=dhcpv6
+  PROVIDES:=dnsmasq
 endef
 
 define Package/dnsmasq-full
@@ -62,6 +63,7 @@ $(call Package/dnsmasq/Default)
 	+PACKAGE_dnsmasq_full_ipset:kmod-ipt-ipset \
 	+PACKAGE_dnsmasq_full_conntrack:libnetfilter-conntrack
   VARIANT:=full
+  PROVIDES:=dnsmasq
 endef
 
 define Package/dnsmasq/description
@@ -122,7 +124,8 @@ Package/dnsmasq-full/conffiles = $(Package/dnsmasq/conffiles)
 TARGET_CFLAGS += -ffunction-sections -fdata-sections
 TARGET_LDFLAGS += -Wl,--gc-sections
 
-COPTS = $(if $(CONFIG_IPV6),,-DNO_IPV6)
+COPTS = -DHAVE_UBUS \
+	$(if $(CONFIG_IPV6),,-DNO_IPV6)
 
 ifeq ($(BUILD_VARIANT),nodhcpv6)
 	COPTS += -DNO_DHCP6
@@ -163,6 +166,7 @@ define Package/dnsmasq/install
 	$(INSTALL_DIR) $(1)/etc/hotplug.d/tftp
 	$(INSTALL_DATA) ./files/dnsmasqsec.hotplug $(1)/etc/hotplug.d/ntp/25-dnsmasqsec
 	$(INSTALL_DIR) $(1)/usr/share/dnsmasq
+	$(INSTALL_DATA) ./files/dhcpbogushostname.conf $(1)/usr/share/dnsmasq/
 	$(INSTALL_DATA) ./files/rfc6761.conf $(1)/usr/share/dnsmasq/
 	$(INSTALL_DIR) $(1)/usr/lib/dnsmasq
 	$(INSTALL_BIN) ./files/dhcp-script.sh $(1)/usr/lib/dnsmasq/dhcp-script.sh
