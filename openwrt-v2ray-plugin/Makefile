@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2018-2020 chenhw2 <https://github.com/chenhw2>
+# Copyright (C) 2018-2021 honwen <https://github.com/honwen>
 #
 # This is free software, licensed under the GNU General Public License v3.
 # See /LICENSE for more information.
@@ -8,8 +8,8 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=v2ray-plugin
-PKG_VERSION:=1.3.1
-PKG_RELEASE:=Core_4.23.2
+PKG_VERSION:=4.36.0
+PKG_RELEASE:=20210314
 PKG_MAINTAINER:=chenhw2 <https://github.com/chenhw2>
 
 # OpenWrt ARCH: arm, i386, x86_64, mips, mipsel
@@ -17,7 +17,7 @@ PKG_MAINTAINER:=chenhw2 <https://github.com/chenhw2>
 PKG_ARCH:=$(ARCH)
 BIN_ARCH:=$(ARCH)
 ifeq ($(ARCH),mips)
-    BIN_ARCH:=mips_sf
+	BIN_ARCH:=mips_sf
 endif
 ifeq ($(ARCH),mipsel)
 	PKG_ARCH:=mips
@@ -31,12 +31,16 @@ ifeq ($(ARCH),x86_64)
 	PKG_ARCH:=amd64
 	BIN_ARCH:=amd64
 endif
+ifeq ($(ARCH),aarch64)
+	PKG_ARCH:=arm64
+	BIN_ARCH:=arm64
+endif
 ifeq ($(ARCH),arm)
 	BIN_ARCH:=arm7
 endif
 
 PKG_SOURCE:=v2ray-plugin-linux-$(PKG_ARCH)-v$(PKG_VERSION).tar.gz
-PKG_SOURCE_URL:=https://github.com/shadowsocks/v2ray-plugin/releases/download/v$(PKG_VERSION)/
+PKG_SOURCE_URL:=https://github.com/teddysun/v2ray-plugin/releases/download/v$(PKG_VERSION)/
 PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)-$(PKG_VERSION)
 PKG_HASH:=skip
 
@@ -58,7 +62,7 @@ define Build/Prepare
 endef
 
 define Build/Compile
-	echo "$(PKG_NAME)Compile Skiped!"
+	echo "$(PKG_NAME)Compile Skipped!"
 endef
 
 define Package/v2ray-plugin/install
